@@ -1,0 +1,4 @@
+  public class caseWrapper {
+    public string id {get;set;}
+    public string agentId {get;set;}
+    }
