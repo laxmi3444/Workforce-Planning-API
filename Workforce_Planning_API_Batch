@@ -1,0 +1,66 @@
+global class Workforce_Planning_API_Batch implements Database.Batchable<sObject>,Database.AllowsCallouts{
+    Public string result;
+    public Database.QueryLocator start(Database.BatchableContext bc) {
+        string status = 'Closed';
+        return Database.getQueryLocator('select id,OwnerId,status from case where status =:status');
+    }
+    global void execute(Database.BatchableContext bc, List<case> scope){  
+        list<caseWrapper> wraplist = new list<caseWrapper>();
+        for(case cs : scope){
+            // create Instance for wrapper class to store case records
+            caseWrapper cwrap = new caseWrapper();
+            cwrap.id = cs.id; 
+            cwrap.agentId = cs.OwnerId;
+            wraplist.add(cwrap);
+        }
+        //Serialize wrapper class
+        string body = JSON.serialize(wraplist);
+        //End point to hit External org 
+        string endpoint = 'https://nfapihub.herokuapp.com/';
+        Http p = new Http();
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint(endpoint);
+        request.setMethod('POST');
+        request.setBody(body);  
+        //request.setHeader('Content-Type', 'application/json');
+        HttpResponse res = p.send(request);
+        result = res.getBody();     
+        list<ResponseWrapper> responseDataList = new list<ResponseWrapper>();
+        responseDataList = (list<ResponseWrapper>)JSON.deserialize(result, list<ResponseWrapper>.class);        
+        List<case> caseList = new List<case>();
+        // If response fail store reason in respective case Object
+        if(res.getStatusCode() == 500){          
+            for(ResponseWrapper rw : responseDataList){  
+                system.debug('rw'+rw);
+                case cc = new case();
+                cc.ExternalId__c = rw.externalID;
+                cc.Staus__c = rw.success;
+                cc.Error__c = rw.error;
+                caseList.add(cc);
+            }try{
+               Upsert caseList ExternalId__c;               
+            }
+            catch(Exception e){
+                system.debug('error'+e.getMessage());
+            }
+        }
+        // If success update case with Secret Key
+        if(res.getStatusCode() == 200){
+            for(ResponseWrapper rw : responseDataList){
+                case cc = new case();
+                cc.ExternalId__c = rw.externalID;
+                cc.Staus__c = rw.success;
+                cc.SecretKey__c = rw.secretKey;
+                caseList.add(cc);
+            }try{
+                Upsert caseList ExternalId__c;
+            }
+            catch(Exception e){
+                system.debug('error'+e.getMessage());
+            } 
+        }      
+        
+    }
+    global void finish(Database.BatchableContext bc){
+    }
+}
